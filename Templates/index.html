@@ -79,76 +79,79 @@
       // is sized/positioned correctly at non-100% DPI (125/150% etc.) instead of clipped.
       import { devicePixels } from "@sciter";
 
-      document.on("ready", async () => {
-        // Load the import-free bundle resolved against THIS document's OWN location, so
-        // the project runs from ANY clone path (no hardcoded absolute path). document.url
-        // (relpath) joins relpath onto this document's URL → an ABSOLUTE url; importing an
-        // absolute url sidesteps Sciter's relative-specifier resolution bug under a path
-        // containing a space ("web-view-test 2"). Rebuild: `node demo/build/build-bundle.mjs`.
-        const { showNotification, notificationTemplate } = await import(
-          document.url("demo/build/bundle.js")
-        );
-
+      document.on("ready", () => {
         const elemWebView = document.$("webview");
         let handle = null;
 
-        // ─────────────────────────────────────────────────────────────────────
-        // PAYLOAD FROM THE BACKEND SERVICE.
-        // Everything here is plain JSON (template + data + i18n + lang + actions +
-        // hideAfterMs) — exactly what arrives from the other service, and the shape
-        // a future C++ integration would deliver verbatim. Swap this object for the
-        // real backend response; nothing else below changes.
-        // ─────────────────────────────────────────────────────────────────────
-        const fromBackend = {
-          template: notificationTemplate,
-          lang: "en",
-          data: { programName: "WinZip", count: 12 },
-          i18n: {
-            en: {
-              title: "Program removed: {programName}",
-              subtitle: "Leftover files: {count}",
-              counter: "Live counter",
-              cta: "CTA",
-              close: "Close",
-            },
-            uk: {
-              title: "Програму видалено: {programName}",
-              subtitle: "Залишкових файлів: {count}",
-              counter: "Лічильник",
-              cta: "CTA",
-              close: "Закрити",
-            },
-            ru: {
-              title: "Программа удалена: {programName}",
-              subtitle: "Остаточных файлов: {count}",
-              counter: "Счётчик",
-              cta: "CTA",
-              close: "Закрыть",
-            },
-          },
-          actions: [
-            { name: "cta", id: "cta_click" },
-            { name: "close", id: "close_webview", closes: true },
-          ],
-          //hideAfterMs: 8000, // uncomment to demo auto-hide
-        };
+        // Start loading the import-free bundle, resolved against THIS document's OWN
+        // location — portable: runs from ANY clone path, no hardcoded absolute path.
+        // document.url(relpath) returns an ABSOLUTE url; importing an absolute url
+        // sidesteps Sciter's relative-specifier bug under a path containing a space
+        // ("web-view-test 2"). Rebuild the bundle: `node demo/build/build-bundle.mjs`.
+        const bridgeReady = import(document.url("demo/build/bundle.js"));
 
-        // Spec = backend payload + LOCAL host callbacks (functions, not from the
-        // backend — this is where you'd forward events on to C++).
-        const spec = {
-          ...fromBackend,
-          on: {
-            onReady: (info) => console.log("bridge onReady", info),
-            onAction: (ev) => console.log("bridge onAction", ev), // <- forward to C++ here if needed
-            onClose: (reason) => console.log("bridge onClose", reason),
-            onLocalizationChanged: (c) =>
-              console.log("bridge onLocalizationChanged", c),
-            onError: (err) => console.log("bridge onError", err),
-          },
-        };
-
-        elemWebView.on("webview-ready", () => {
+        // Register webview-ready SYNCHRONOUSLY (so a fast init can't fire before we are
+        // listening), then await the bundle inside it before the first render — render is
+        // gated on BOTH the webview being ready AND the bundle being loaded.
+        elemWebView.on("webview-ready", async () => {
           console.log("webview init success");
+          const { showNotification, notificationTemplate } = await bridgeReady;
+
+          // ───────────────────────────────────────────────────────────────────
+          // PAYLOAD FROM THE BACKEND SERVICE.
+          // Everything here is plain JSON (template + data + i18n + lang + actions +
+          // hideAfterMs) — exactly what arrives from the other service, and the shape
+          // a future C++ integration would deliver verbatim. Swap this object for the
+          // real backend response; nothing else below changes.
+          // ───────────────────────────────────────────────────────────────────
+          const fromBackend = {
+            template: notificationTemplate,
+            lang: "en",
+            data: { programName: "WinZip", count: 12 },
+            i18n: {
+              en: {
+                title: "Program removed: {programName}",
+                subtitle: "Leftover files: {count}",
+                counter: "Live counter",
+                cta: "CTA",
+                close: "Close",
+              },
+              uk: {
+                title: "Програму видалено: {programName}",
+                subtitle: "Залишкових файлів: {count}",
+                counter: "Лічильник",
+                cta: "CTA",
+                close: "Закрити",
+              },
+              ru: {
+                title: "Программа удалена: {programName}",
+                subtitle: "Остаточных файлов: {count}",
+                counter: "Счётчик",
+                cta: "CTA",
+                close: "Закрыть",
+              },
+            },
+            actions: [
+              { name: "cta", id: "cta_click" },
+              { name: "close", id: "close_webview", closes: true },
+            ],
+            //hideAfterMs: 8000, // uncomment to demo auto-hide
+          };
+
+          // Spec = backend payload + LOCAL host callbacks (functions, not from the
+          // backend — this is where you'd forward events on to C++).
+          const spec = {
+            ...fromBackend,
+            on: {
+              onReady: (info) => console.log("bridge onReady", info),
+              onAction: (ev) => console.log("bridge onAction", ev), // <- forward to C++ here if needed
+              onClose: (reason) => console.log("bridge onClose", reason),
+              onLocalizationChanged: (c) =>
+                console.log("bridge onLocalizationChanged", c),
+              onError: (err) => console.log("bridge onError", err),
+            },
+          };
+
           handle = showNotification(
             // devicePixels rounds the (possibly fractional) dip size before scaling —
             // the API takes int dips. At 100% it's identity, so behaviour is unchanged.
