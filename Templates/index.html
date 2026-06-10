@@ -73,21 +73,22 @@
       at startup (script above); the bridge moves it on-screen bottom-right after render.
     -->
     <script type="module">
-      // Single import-free bundle via absolute path. Sciter can't resolve relative
-      // imports when the document path contains a space ("web-view-test 2") — its base
-      // URL is malformed and "./x.js" stays literal. The bundle has no inner imports,
-      // so no relative resolution is needed (rebuild: `node demo/build/build-bundle.mjs`).
-      import {
-        showNotification,
-        notificationTemplate,
-      } from "C:\\____WORK____\\web-view-test 2\\Templates\\demo\\build\\bundle.js";
       // `@sciter` is a built-in (bare) specifier — unaffected by the space-in-path
       // relative-import bug. devicePixels(dips)->physical px lets the bridge convert
       // the WebView's CSS-px size to the PPX that window.move() requires, so the card
       // is sized/positioned correctly at non-100% DPI (125/150% etc.) instead of clipped.
       import { devicePixels } from "@sciter";
 
-      document.on("ready", () => {
+      document.on("ready", async () => {
+        // Load the import-free bundle resolved against THIS document's OWN location, so
+        // the project runs from ANY clone path (no hardcoded absolute path). document.url
+        // (relpath) joins relpath onto this document's URL → an ABSOLUTE url; importing an
+        // absolute url sidesteps Sciter's relative-specifier resolution bug under a path
+        // containing a space ("web-view-test 2"). Rebuild: `node demo/build/build-bundle.mjs`.
+        const { showNotification, notificationTemplate } = await import(
+          document.url("demo/build/bundle.js")
+        );
+
         const elemWebView = document.$("webview");
         let handle = null;
 

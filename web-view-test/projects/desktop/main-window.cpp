@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <string>
 
 #include "main-window.h"
 
@@ -8,9 +9,44 @@ MainWindow::MainWindow() : sciter::window(SW_TITLEBAR | SW_RESIZEABLE | SW_CONTR
 {
 }
 
+// Locate Templates/index.html portably: start from the folder of the running .exe and
+// walk UP the tree until the file is found. This makes a fresh clone work from ANY
+// location and ANY build config (x64\Debug, x64\Release, ...) without a hardcoded path.
+// Forward slashes mirror the path format Sciter's loader expects.
+static std::wstring locate_index_html()
+{
+    wchar_t exe[MAX_PATH] = {0};
+    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+
+    std::wstring dir(exe);
+    size_t slash = dir.find_last_of(L"\\/");
+    if (slash != std::wstring::npos)
+        dir.resize(slash);
+
+    for (int up = 0; up < 8; ++up)
+    {
+        std::wstring candidate = dir + L"\\Templates\\index.html";
+        if (GetFileAttributesW(candidate.c_str()) != INVALID_FILE_ATTRIBUTES)
+        {
+            for (auto &c : candidate)
+                if (c == L'\\')
+                    c = L'/';
+            return candidate;
+        }
+        slash = dir.find_last_of(L"\\/");
+        if (slash == std::wstring::npos)
+            break;
+        dir.resize(slash);
+    }
+    return std::wstring();
+}
+
     void MainWindow::loadHtml()
     {
-        load(L"C:/____WORK____/web-view-test 2/Templates/index.html");
+        std::wstring path = locate_index_html();
+        // Fallback to a CWD-relative path if the walk-up failed (e.g. exe moved out of
+        // the repo tree); the inspector console will show a load error if neither exists.
+        load(path.empty() ? L"Templates/index.html" : path.c_str());
     }
 
 void MainWindow::show()

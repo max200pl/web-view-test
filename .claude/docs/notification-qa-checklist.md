@@ -14,8 +14,10 @@ Flow diagram (live bridge path): [../sequences/notification-bridge-flow.mmd](../
 
 ## How to run
 
-`main-window.cpp:13` loads `index.html` from disk, so JS-only changes need **no
-rebuild** — just relaunch:
+`main-window.cpp` (`loadHtml()` → `locate_index_html()`) loads `index.html` from disk by
+walking UP from the `.exe` folder until it finds `Templates\index.html` (portable: any clone
+path / build config). JS-only changes need **no rebuild** — just relaunch. (A change to the C++
+loader itself needs a one-time VS rebuild.)
 
 1. Close any running instance.
 2. Launch `web-view-test\x64\Debug\desktop.exe`.
@@ -33,14 +35,16 @@ Sciter inspector plus `console.log` from both runtimes — the bridge logs
 ## ⚠️ First-run integration check (Step 9b)
 
 `index.html` loads **`demo/build/bundle.js`** (a generated, import-free concatenation of
-`bridge/core` + `bridge/sciter` (ship) and `demo/templates`) via absolute path. This is because Sciter can't resolve relative module
-imports under a path containing a space (`web-view-test 2`) — `./x.js` stays literal
-("Unknown module 'file:./x.js'"). The bundle has no inner imports, so a single leaf
-file loads with no relative resolution. Confirm on launch:
+`bridge/core` + `bridge/sciter` (ship) and `demo/templates`) via
+`await import(document.url("demo/build/bundle.js"))` — an ABSOLUTE url resolved against the page's
+own location. This is both **portable** (works from any clone path — no hardcoded `C:\…`) and a
+workaround for Sciter not resolving relative module specifiers under a path containing a space
+(`web-view-test 2`) — `./x.js` would stay literal ("Unknown module 'file:./x.js'"); an absolute
+url sidesteps it. The bundle has no inner imports, so the single leaf loads cleanly. Confirm on launch:
 
 + **Card renders + console `webview init success` then `bridge onReady …`** → ✅ working.
 + **Blank card / `Unknown module …` in console** → the bundle didn't load. Re-generate it
-  (`node demo/build/build-bundle.mjs`) and confirm `index.html` imports `demo\build\bundle.js`.
+  (`node demo/build/build-bundle.mjs`) and confirm `index.html` resolves `demo/build/bundle.js` via `document.url(...)`.
 
 > After any change to a `bridge/{core,sciter}` or `demo/templates` module, rebuild: `node demo/build/build-bundle.mjs`
 > (the `test/bundle.test.mjs` drift guard fails if the committed bundle is stale).
