@@ -1,0 +1,21 @@
+# ───────────────────────────────────────────────────────────────
+# Monorepo .gitignore — C++ desktop shell (web-view-test/) +
+# JS bridge & templates (Templates/) + design docs (.claude/)
+# ───────────────────────────────────────────────────────────────
+
+# Visual Studio / MSBuild build output (matches at any depth)
+.vs/
+x64/
+Debug/
+Release/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Node / JS tooling
+node_modules/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db

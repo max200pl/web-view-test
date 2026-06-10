@@ -1,0 +1,309 @@
+<!-- <html window-frame="extended" window-resizable="false" window-width="850dip" window-height="630dip">
+    <head>
+        <title>Sciter WebView Bridge Test</title>
+
+        <style>
+            html,
+            body {
+                padding: 0;
+                margin: 0;
+                height: 100%;
+            }
+
+            body {
+                display: flex;
+                flex-direction: column;
+            }
+
+            .toolbar {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 8px;
+                border-bottom: 1px solid #ccc;
+                background: #f6f6f6;
+            }
+
+            webview {
+                display: block;
+                size: *;
+                background: #111;
+                behavior: webview library(sciter-webview);
+            }
+        </style>
+
+        <script type="module">
+            document.on("ready", () => {
+                const wv = document.$("webview");
+
+                // ---------- BRIDGE ----------
+                // NOTE: For Sciter WebView bridge, reliably return primitives/strings.
+                // We return JSON strings for structured responses.
+                wv.jsBridgeCall = (params) => {
+                    try {
+                        const method = params && params[0];
+                        const payload = params && params[1];
+
+                        console.log("jsBridgeCall:", method, payload);
+
+                        switch (method) {
+                            case "add": {
+                                const a = Number(params[1] || 0);
+                                const b = Number(params[2] || 0);
+                                return a + b; // primitive -> OK
+                            }
+
+                            case "template:onReady":
+                                return JSON.stringify({
+                                    ok: true,
+                                    type: "onReady",
+                                    received: payload,
+                                    ts: Date.now(),
+                                });
+
+                            case "template:onAction":
+                                return JSON.stringify({
+                                    ok: true,
+                                    type: "onAction",
+                                    received: payload,
+                                    handledAt: Date.now(),
+                                });
+
+                            case "template:ping":
+                                return JSON.stringify({
+                                    ok: true,
+                                    pong: true,
+                                    received: payload,
+                                    ts: Date.now(),
+                                });
+
+                            default:
+                                return JSON.stringify({
+                                    ok: false,
+                                    error: "Unknown method",
+                                    method: method,
+                                });
+                        }
+                    } catch (e) {
+                        return JSON.stringify({
+                            ok: false,
+                            error: String(e),
+                        });
+                    }
+                };
+
+                // ---------- NAVIGATION ----------
+                wv.onNavigation = (evt, param1) => {
+                    console.log("onNavigation:", evt, param1);
+                };
+
+                // ---------- ACTIONS ----------
+                document.on("click", "#testLoadUrl", () => {
+                    wv.webview.loadUrl("https://www.bing.com");
+                });
+
+                document.on("click", "#testLoadTemplate", () => {
+                    const templateHtml = `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Template</title>
+
+  <style>
+    body { font-family: system-ui; padding: 16px; color: white;}
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; color: black; }
+    button { padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+    pre { background: #f6f6f6; padding: 10px; border-radius: 10px; white-space: pre-wrap; }
+  </style>
+</head>
+
+<body>
+  <div class="card">
+    <h3 style="color: white;">Template loaded ?</h3>
+
+    <button id="cta">CTA Click</button>
+    <button id="askAdd">Ask add(5,7)</button>
+    <button id="ping">Ping</button>
+
+    <pre id="out">(logs)</pre>
+  </div>
+
+  <script>
+    const out = document.getElementById("out");
+
+    function log(msg) {
+      out.textContent = (out.textContent + "\\n" + msg).trim();
+      console.log(msg);
+    }
+
+    function tryParseJson(value) {
+      if (typeof value !== "string") return value;
+      try { return JSON.parse(value); } catch (e) { return value; }
+    }
+
+    async function safeCall(method, payload) {
+      if (!window.jsBridgeCall) {
+        log("? jsBridgeCall not found");
+        return;
+      }
+
+      const res = await window.jsBridgeCall(method, payload);
+
+      if (res === undefined) {
+        log("?? " + method + " -> undefined");
+        return;
+      }
+
+      const data = tryParseJson(res);
+      log("? " + method + " -> " + JSON.stringify(data));
+      return data;
+    }
+
+    window.addEventListener("load", () => {
+      safeCall("template:onReady", { name: "TestTemplate", ts: Date.now() });
+    });
+
+    document.getElementById("cta").onclick = () => {
+      safeCall("template:onAction", {
+        action: "cta_click",
+        id: "renew"
+      });
+    };
+
+    document.getElementById("askAdd").onclick = async () => {
+      if (!window.jsBridgeCall) return log("? jsBridgeCall not found");
+      const sum = await window.jsBridgeCall("add", 5, 7);
+      log("? add(5,7) = " + sum);
+    };
+
+    document.getElementById("ping").onclick = () => {
+      safeCall("template:ping", { hello: "world" });
+    };
+
+    window.__fromSciter = function (msg) {
+      log("?? from Sciter: " + JSON.stringify(msg));
+    };
+  <\/script>
+</body>
+</html>`;
+
+                    wv.webview.loadHtml(templateHtml);
+                });
+
+                document.on("click", "#testReload", () => wv.webview.reload());
+                document.on("click", "#testGoBack", () => wv.webview.goBack());
+                document.on("click", "#testGoForward", () => wv.webview.goForward());
+
+                document.on("click", "#testAlert", () => {
+                    wv.webview.evaluateJavaScript('alert("Sciter Call JS")');
+                });
+
+                document.on("click", "#testExternalAdd", () => {
+                    wv.webview.evaluateJavaScript('window.jsBridgeCall("add",1,2).then(function(r){alert("1 + 2 = " + r);});');
+                });
+
+                document.on("click", "#pushToTemplate", () => {
+                    const msg = { type: "update", ts: Date.now() };
+                    wv.webview.evaluateJavaScript("window.__fromSciter && window.__fromSciter(" + JSON.stringify(msg) + ")");
+                });
+            });
+        </script>
+    </head>
+
+    <body>
+        <div class="toolbar">
+            <button id="testLoadUrl">Load Bing</button>
+            <button id="testLoadTemplate">Load Template</button>
+            <button id="testReload">Reload</button>
+            <button id="testGoBack">Back</button>
+            <button id="testGoForward">Forward</button>
+            <button id="testAlert">Alert</button>
+            <button id="testExternalAdd">add(1,2)</button>
+            <button id="pushToTemplate">Push to template</button>
+        </div>
+
+        <webview src="https://www.sciter.com"></webview>
+    </body>
+</html>
+ -->
+
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+
+    <style>
+        html,
+        body {
+            padding: 0;
+            margin: 0;
+        }
+
+        div.content {
+            size: *;
+        }
+
+        webview {
+            display: block;
+            size: *;
+            background: red;
+            behavior: webview library(sciter-webview);
+        }
+    </style>
+
+    <script type="module">
+        document.on('ready', () => {
+            const elemWebView = document.$('webview');
+            //jsBridgeCall(params)
+            //Function: 'jsBridgeCall' is designed for the interaction between Sciter WebView and Browser Web Pages.
+            //It's called from web pages loaded by webview. All parameters are passed to webview.jsBridgeCall.
+            //Developer can use webview.jsBridgeCall in Sciter to handle them. And it can return result if needed.
+            //params: It's an array. The first value is function name, the other values are parameters of the function.
+            elemWebView.jsBridgeCall = (params) => {
+                console.log(JSON.stringify(params));
+                const method = params[0];
+                if ("add" == method) {
+                    return params[1] + params[2];
+                }
+            };
+            //onNavigation
+            //Function: 'onNavigation' is designed for tracking the load Progress of navigation
+            elemWebView.onNavigation = (evt, param1) => {
+                console.log(evt, param1);
+                if (evt == "navigationStarting") {
+                    //param1: url
+                    //Abort navigation if return true
+                    //return true;
+                }
+                else if (evt == "navigationCompleted") {
+                    //param1: 0 - success, -1 - failed
+                }
+            };
+            document.on('click', '#testloadUrl', () => {
+                elemWebView.webview.loadUrl('https://www.bing.com');
+            });
+        });
+
+
+        class App extends Element {
+            render() {
+                return <div class="content" >
+                    <div style="flex: horizontal;">
+                        <button id="testloadUrl">Load Bing</button>
+                    </div>
+                    <webview src="https://www.sciter.com"></webview>
+                </div>
+            }
+        }
+
+        document.body.append(<App />);
+    </script>
+
+</head>
+
+<body></body>
+
+</html>

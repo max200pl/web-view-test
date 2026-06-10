@@ -1,0 +1,203 @@
+<html
+  window-frame="solid"
+  window-resizable="false"
+  window-width="max-content"
+  window-height="max-content"
+>
+  <head>
+    <title>Sciter WebView Bridge</title>
+    <meta charset="utf-8" />
+    <style>
+      html {
+        width: *;
+        height: *;
+        overflow-x: hidden;
+        overflow-y: hidden;
+        background: transparent;
+      }
+
+      body {
+        position: relative;
+        margin: 0;
+        border: none;
+      }
+
+      main div {
+        box-sizing: border-box;
+      }
+
+      main {
+        width: *;
+        height: 100%;
+      }
+
+      webview {
+        position: relative;
+        display: block;
+        size: *;
+        background: transparent !important;
+        behavior: webview library(sciter-webview);
+      }
+
+      /* dev-only controls: absolute OVERLAY so the WebView (card) fills the whole client
+         area. In-flow it would steal layout height and clip the card's bottom buttons. */
+      .panel {
+        position: absolute;
+        top: 8dip;
+        right: 8dip;
+        flow: vertical;
+        gap: 6dip;
+        background: #ffffffcc;
+        padding: 8dip;
+        border-radius: 6dip;
+      }
+
+      button {
+        padding: 6dip 10dip;
+      }
+    </style>
+
+    <script>
+      // Move the window OFF-SCREEN before expand() shows it. The window stays SHOWN (so
+      // WebView2 actually paints — a window-state="hidden" window never paints, you get a
+      // blank webview), but it's off the visible area, so the user sees nothing until the
+      // bridge moves it on-screen (bottom-right, exact size) on the first onSize.
+      // Runs synchronously at parse time, before main-window.cpp calls expand().
+      try {
+        Window.this.move(-32000, -32000, 100, 100);
+      } catch (e) {}
+    </script>
+
+    <!--
+      Live host for the unified notification bridge (Step 9b). Window is shown off-screen
+      at startup (script above); the bridge moves it on-screen bottom-right after render.
+    -->
+    <script type="module">
+      // Single import-free bundle via absolute path. Sciter can't resolve relative
+      // imports when the document path contains a space ("web-view-test 2") — its base
+      // URL is malformed and "./x.js" stays literal. The bundle has no inner imports,
+      // so no relative resolution is needed (rebuild: `node demo/build/build-bundle.mjs`).
+      import {
+        showNotification,
+        notificationTemplate,
+      } from "C:\\____WORK____\\web-view-test 2\\Templates\\demo\\build\\bundle.js";
+      // `@sciter` is a built-in (bare) specifier — unaffected by the space-in-path
+      // relative-import bug. devicePixels(dips)->physical px lets the bridge convert
+      // the WebView's CSS-px size to the PPX that window.move() requires, so the card
+      // is sized/positioned correctly at non-100% DPI (125/150% etc.) instead of clipped.
+      import { devicePixels } from "@sciter";
+
+      document.on("ready", () => {
+        const elemWebView = document.$("webview");
+        let handle = null;
+
+        // ─────────────────────────────────────────────────────────────────────
+        // PAYLOAD FROM THE BACKEND SERVICE.
+        // Everything here is plain JSON (template + data + i18n + lang + actions +
+        // hideAfterMs) — exactly what arrives from the other service, and the shape
+        // a future C++ integration would deliver verbatim. Swap this object for the
+        // real backend response; nothing else below changes.
+        // ─────────────────────────────────────────────────────────────────────
+        const fromBackend = {
+          template: notificationTemplate,
+          lang: "en",
+          data: { programName: "WinZip", count: 12 },
+          i18n: {
+            en: {
+              title: "Program removed: {programName}",
+              subtitle: "Leftover files: {count}",
+              counter: "Live counter",
+              cta: "CTA",
+              close: "Close",
+            },
+            uk: {
+              title: "Програму видалено: {programName}",
+              subtitle: "Залишкових файлів: {count}",
+              counter: "Лічильник",
+              cta: "CTA",
+              close: "Закрити",
+            },
+            ru: {
+              title: "Программа удалена: {programName}",
+              subtitle: "Остаточных файлов: {count}",
+              counter: "Счётчик",
+              cta: "CTA",
+              close: "Закрыть",
+            },
+          },
+          actions: [
+            { name: "cta", id: "cta_click" },
+            { name: "close", id: "close_webview", closes: true },
+          ],
+          //hideAfterMs: 8000, // uncomment to demo auto-hide
+        };
+
+        // Spec = backend payload + LOCAL host callbacks (functions, not from the
+        // backend — this is where you'd forward events on to C++).
+        const spec = {
+          ...fromBackend,
+          on: {
+            onReady: (info) => console.log("bridge onReady", info),
+            onAction: (ev) => console.log("bridge onAction", ev), // <- forward to C++ here if needed
+            onClose: (reason) => console.log("bridge onClose", reason),
+            onLocalizationChanged: (c) =>
+              console.log("bridge onLocalizationChanged", c),
+            onError: (err) => console.log("bridge onError", err),
+          },
+        };
+
+        elemWebView.on("webview-ready", () => {
+          console.log("webview init success");
+          handle = showNotification(
+            // devicePixels rounds the (possibly fractional) dip size before scaling —
+            // the API takes int dips. At 100% it's identity, so behaviour is unchanged.
+            { elemWebView, win: Window, devicePixels: (n) => devicePixels(Math.round(n)) },
+            spec,
+          );
+        });
+
+        elemWebView.on("webview-unavailable", () => {
+          console.log("webview init failure");
+        });
+
+        // ===== Dev panel: drive the live handle (parity with the legacy demo) =====
+        document.on("click", "#langEN", () => handle && handle.setLang("en"));
+        document.on("click", "#langUK", () => handle && handle.setLang("uk"));
+        document.on("click", "#langRU", () => handle && handle.setLang("ru"));
+        document.on(
+          "click",
+          "#updatePayload",
+          () =>
+            handle && handle.update({ programName: "Adobe Reader", count: 27 }),
+        );
+        document.on(
+          "click",
+          "#updateI18n",
+          () =>
+            handle &&
+            handle.setI18n({
+              en: {
+                title: "🚀 EN from Sciter: {programName}",
+                subtitle: "🧹 Files left: {count}",
+              },
+              ru: {
+                title: "🚀 RU from Sciter: {programName}",
+                subtitle: "🧹 Осталось файлов: {count}",
+              },
+            }),
+        );
+      });
+    </script>
+  </head>
+
+  <body>
+    <webview></webview>
+    <div class="panel">
+      <button #langEN>EN</button>
+      <button #langUK>UK</button>
+      <button #langRU>RU</button>
+      <button #updatePayload>Update payload</button>
+      <button #updateI18n>Update i18n</button>
+    </div>
+  </body>
+</html>

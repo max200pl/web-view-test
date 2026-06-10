@@ -1,0 +1,52 @@
+%% Notification bridge — высокоуровневый API / lifecycle (реализовано ✅, live в desktop.exe).
+%% Код: ../../Templates/bridge/ (core + sciter), README там же. Демо/тесты: ../../Templates/demo/.
+%% Низкоуровневый wire-handshake: jsbridge-flow.mmd. Контракт: ../docs/notification-bridge-contract.md
+sequenceDiagram
+    autonumber
+    participant App as Host app код<br/>index.html (runtime A)
+    participant Br as Bridge<br/>showNotification / createNotification (runtime A)
+    participant T as WebView template<br/>notification-template + client (runtime B)
+
+    Note over App,T: Вход моста: NotificationSpec {template, data, actions, i18n, lang, hideAfterMs, on}
+    App->>Br: showNotification(spec) -> NotificationHandle
+
+    rect rgb(238,246,255)
+    Note over Br: Шаг 3 ✅ injection (inject.js): токены {{text.key}} / {{data.field}} / {{lang}} / {{actions}},<br/>значения экранируются (HTML / script-контекст) -> готовый HTML
+    Note over Br: Шаг 4 ✅ render (render.js + WebViewAdapter): loadHtml(HTML),<br/>слушатель ready ставится ДО загрузки; render ≠ show
+    end
+
+    Note over Br,T: Wire B->A: template:onReady / template:onSize
+    T-->>Br: onReady {lang} + onSize {width,height}
+    rect rgb(238,255,238)
+    Note over Br: Шаг 5 ✅ lifecycle (notification.js): move на КАЖДЫЙ onSize (bottom-right, clamp 200×120),<br/>show ТОЛЬКО при первом ready+size; arm hideAfterMs; close идемпотентен (reason)
+    end
+    Br-->>App: on.onReady({lang, width, height})
+    T-->>Br: повторный onSize (ResizeObserver / relocalize)
+    Br->>Br: ресайз окна под контент — без повторного show
+
+    Note over T,App: Шаг 6 ✅ — действия (notification.js)
+    T-->>Br: template:onAction {action, href?, ...}
+    Br-->>App: on.onAction({id, data}) — seam для форварда в C++ (единообразно, без магических id)
+    alt действие объявлено closes:true в spec.actions
+        Br->>T: закрыть окно
+        Br-->>App: on.onClose("action")
+    end
+
+    Note over App,T: Шаг 7 ✅ — локализация / обновление (через handle, notification.js)
+    App->>Br: handle.setLang(lang) / setI18n(i18n) / update(data)
+    Br->>T: re-inject + loadHtml(новый HTML); окно не закрывается и не пере-показывается,<br/>но ресайзится под новый контент через onSize перезагруженной страницы
+    Br-->>App: on.onLocalizationChanged({lang}) — только для setLang
+
+    Note over Br,App: Авто-скрытие / явное закрытие
+    alt hideAfterMs истёк
+        Br->>T: закрыть окно
+        Br-->>App: on.onClose("auto-hide")
+    else handle.close()
+        Br->>T: закрыть окно
+        Br-->>App: on.onClose("host")
+    end
+
+    Note over Br,App: Шаг 8 ✅ — ошибки на любом этапе (notification.js)
+    Br-->>App: on.onError({stage, message, cause})<br/>stage ∈ window-create / injection / render / callback / localization / auto-hide
+    Note right of T: render-ошибка (runtime B) приезжает<br/>через template:onError -> stage render
+    Note over Br,App: broken notification НИКОГДА не показывается; throwing onError не ломает мост

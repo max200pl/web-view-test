@@ -1,0 +1,10 @@
+{
+  "name": "sciter-webview-bridge-demo",
+  "version": "0.1.0",
+  "description": "Demo host + test suite for the Sciter <-> WebView bridge (auxiliary, not shipped)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

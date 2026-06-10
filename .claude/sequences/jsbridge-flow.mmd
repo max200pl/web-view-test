@@ -1,0 +1,46 @@
+%% Low-level runtime handshake of the LIVE bridge (Sciter <-> WebView).
+%% Wire mechanics (jsBridgeCall arg-packing, loadHtml transport). High-level API/
+%% lifecycle: notification-bridge-flow.mmd. Code: ../../Templates/bridge/ (+ README).
+%% NOTE: the old self-render demo (index.html legacy + Templates.js) was deleted;
+%% index.html is now a thin bridge host that loads demo/build/bundle.js.
+sequenceDiagram
+    autonumber
+    participant CPP as C++ bootstrap<br/>desktop.cpp / main-window.cpp
+    participant A as Sciter host (runtime A)<br/>index.html + bridge (core/sciter)
+    participant DLL as Мост<br/>sciter-webview.dll (WebView2)
+    participant B as WebView template (runtime B)<br/>notification-template + client
+
+    Note over CPP,B: Старт приложения
+    CPP->>A: load(Templates/index.html)
+    CPP->>A: expand() — окно УЖЕ видимо на дефолтной геометрии (вспышка, §10.2)
+    A->>A: document "ready": взять &lt;webview&gt;, ждать webview-ready
+    DLL-->>A: event "webview-ready"
+    A->>A: showNotification({elemWebView, win:Window}, spec)
+
+    Note over A: makeSciterDeps: ставит elemWebView.jsBridgeCall (B->A диспетчер),<br/>строит windowCtl (move/show/close/screenBox) + scheduler (setTimeout)
+    A->>A: createNotification: bridge.on(onSize/onAction/onError),<br/>renderNotification -> injectTemplate(spec) -> HTML, слушатель onReady ДО загрузки
+    A->>DLL: webview.loadHtml(HTML)  (готовый HTML: {{client}}/{{t}}/{{d}} подставлены)
+    DLL->>B: NavigateToString(HTML)
+    B->>B: template-client на 'load'
+
+    Note over B,A: Handshake B -> A (jsBridgeCall пакует ВСЕ аргументы в один массив)
+    B->>DLL: window.jsBridgeCall("template:onReady", {lang})
+    DLL->>A: elemWebView.jsBridgeCall(["template:onReady", {…}])  — params[0]=method, [1]=payload
+    A->>A: dispatch -> renderNotification resolve -> ready=true
+    A-->>DLL: return JSON.stringify({ok:true})  (строка)
+    DLL-->>B: Promise resolve(res)
+
+    Note over B,A: Sizing -> show (B -> A)
+    B->>DLL: jsBridgeCall("template:onSize", {width, height})  (замер [data-notify-root])
+    DLL->>A: elemWebView.jsBridgeCall(["template:onSize", {…}])
+    A->>A: applyWindow: screenBox + clamp(≥200×120) -> Window.this.move(x,y,w,h);<br/>show ОДИН раз; arm hideAfterMs
+    B-->>A: (ResizeObserver/relocalize) повторный onSize -> move() РЕСАЙЗ, без повторного show
+
+    Note over B,A: Действия (B -> A)
+    B->>DLL: jsBridgeCall("template:onAction", {action, href?})  (клик по [data-action])
+    DLL->>A: dispatch -> on.onAction({id,data}); close если action объявлен closes:true
+
+    Note over A,B: A -> B = re-inject + reload (НЕ __fromSciter)
+    A->>A: handle.setLang/update/setI18n -> rerender -> injectTemplate(current)
+    A->>DLL: webview.loadHtml(новый HTML) -> B переинициализируется, окно не закрывается
+    Note over A,B: close (host/action/auto-hide) -> Window.this.close()
