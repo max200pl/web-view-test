@@ -83,12 +83,14 @@
         const elemWebView = document.$("webview");
         let handle = null;
 
-        // Start loading the import-free bundle, resolved against THIS document's OWN
-        // location — portable: runs from ANY clone path, no hardcoded absolute path.
-        // document.url(relpath) returns an ABSOLUTE url; importing an absolute url
-        // sidesteps Sciter's relative-specifier bug under a path containing a space
-        // ("web-view-test 2"). Rebuild the bundle: `node demo/build/build-bundle.mjs`.
-        const bridgeReady = import(document.url("demo/build/bundle.js"));
+        // Start loading the import-free bundle. `__DIR__` is a Sciter built-in: the
+        // ABSOLUTE url of THIS document's folder (always ends with "/"), so
+        // `__DIR__ + "demo/build/bundle.js"` is an absolute url built by plain string
+        // concatenation — NO relative-specifier resolution, which is the step that breaks
+        // under a path containing a space ("web-view-test 2"). (document.url("rel") tried
+        // to resolve and returned the broken "file:demo/build/bundle.js".) Portable to any
+        // clone path; idiomatic Sciter (see pc_cleaner ui). Rebuild: `node demo/build/build-bundle.mjs`.
+        const bridgeReady = import(__DIR__ + "demo/build/bundle.js");
 
         // Register webview-ready SYNCHRONOUSLY (so a fast init can't fire before we are
         // listening), then await the bundle inside it before the first render — render is
